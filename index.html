@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Mission Runner — Prototype</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#071522;color:#fff;font-family:system-ui,"Noto Sans Bengali",sans-serif}
+canvas{display:block;width:100vw;height:100vh;touch-action:none}
+#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;gap:8px;pointer-events:none;text-shadow:0 2px 5px #000;font-weight:800}
+.pill{background:#071522bb;border:1px solid #ffffff55;border-radius:12px;padding:7px 10px}
+#hint{position:fixed;top:54px;left:50%;transform:translateX(-50%);background:#071522bb;border-radius:12px;padding:7px 12px;font-size:13px;text-align:center;max-width:90vw}
+#controls{position:fixed;bottom:18px;left:0;right:0;display:flex;justify-content:space-between;padding:0 18px;pointer-events:none}
+.ctrl{pointer-events:auto;border:1px solid #ffffff88;background:#071522aa;color:white;border-radius:50%;width:66px;height:66px;font-size:25px;font-weight:bold;touch-action:manipulation}
+#right{display:flex;gap:12px}
+#overlay{position:fixed;inset:0;background:linear-gradient(#051321bb,#04101bee);display:flex;align-items:center;justify-content:center;padding:22px}
+.card{width:min(440px,100%);background:#10273a;border:1px solid #5fd4ff77;border-radius:22px;padding:24px;text-align:center;box-shadow:0 20px 70px #0008}
+h1{margin:0;color:#ffcf3d;font-size:clamp(28px,8vw,46px);line-height:1}
+button.primary{background:#ffc928;color:#14202b;border:0;border-radius:12px;padding:13px 22px;font-size:18px;font-weight:900;margin-top:12px}
+.small{opacity:.8;font-size:13px;line-height:1.5}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"><div class="pill">🪙 <span id="coins">0</span></div><div class="pill">মিশন <span id="mission">১</span>/৩</div><div class="pill">❤️ <span id="lives">3</span></div></div>
+<div id="hint">বাঁ/ডান চাপুন বা কিবোর্ডের ← → ব্যবহার করুন • বাধা এড়িয়ে কয়েন নিন</div>
+<div id="controls"><button class="ctrl" id="left">◀</button><div id="right"><button class="ctrl" id="jump">⬆</button><button class="ctrl" id="rightbtn">▶</button></div></div>
+<div id="overlay"><div class="card"><h1>MISSION<br>RUNNER</h1><p>৩ডি গেমের প্রাথমিক প্রোটোটাইপ</p><p class="small">শহর, জঙ্গল ও পাহাড়ি মিশনের ধারণা দিয়ে তৈরি একটি হালকা 2.5D নমুনা। এটি এখনো পূর্ণ 3D গেম বা APK নয়।</p><button class="primary" id="start">▶ খেলা শুরু</button><p class="small">মিশন: ১০টি কয়েন সংগ্রহ • বাধা এড়াও • ২ জিবি+ ডিভাইসের জন্য হালকা রাখার চেষ্টা</p></div></div>
+<script>
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+let W,H,dpr, running=false, lane=1, coins=0,lives=3,dist=0, obstacles=[], pickups=[], last=0, spawn=0, jumpT=0, mission=1, world=0;
+const $=id=>document.getElementById(id);
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*dpr;c.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+function roadY(){return H*.40}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ let sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,['#4d9ed0','#183d6d','#5c8c66'][world]);sky.addColorStop(1,['#d7e7e9','#5c6e80','#173b2d'][world]);ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ // distant skyline/mountains
+ ctx.fillStyle=world===1?'#214c3d':'#486b84';
+ for(let i=0;i<9;i++){let x=i*W/8;let hh=(world===1?H*.12:H*(.08+(i%3)*.045));ctx.beginPath();ctx.moveTo(x,roadY());ctx.lineTo(x+W/16,roadY()-hh);ctx.lineTo(x+W/8,roadY());ctx.fill()}
+ // road perspective
+ ctx.fillStyle='#343e49';ctx.beginPath();ctx.moveTo(W*.43,roadY());ctx.lineTo(W*.57,roadY());ctx.lineTo(W*.98,H);ctx.lineTo(W*.02,H);ctx.closePath();ctx.fill();
+ ctx.strokeStyle='#f8e7a0';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(W*.5,roadY());ctx.lineTo(W*.5,H);ctx.stroke();
+ for(let i=0;i<7;i++){let y=roadY()+((i*70+dist*2)%(H-roadY()));let t=(y-roadY())/(H-roadY());ctx.fillStyle='#fff9c8';ctx.fillRect(W*.5-2*t,y,4*t,18*t)}
+ // lanes and objects
+ obstacles.forEach(o=>{let t=o.z;let y=roadY()+t*(H-roadY());let x=W*(.5+(o.lane-1)*.22*t);let s=.25+t*.95;ctx.fillStyle=o.type==='coin'?'#ffd63e':o.type==='tree'?'#1f6e3c':'#e4543d';if(o.type==='coin'){ctx.beginPath();ctx.arc(x,y-15*s,10*s,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#fff2a0';ctx.lineWidth=3*s;ctx.stroke()}else{ctx.fillRect(x-18*s,y-32*s,36*s,32*s);ctx.fillStyle='#ffffff55';ctx.fillRect(x-12*s,y-27*s,10*s,9*s)}});
+ // player
+ const px=W*(.5+(lane-1)*.22), py=H*.80-(jumpT>0?Math.sin((jumpT/0.75)*Math.PI)*H*.16:0), scale=Math.min(W/400,1.4);
+ ctx.fillStyle='#0005';ctx.beginPath();ctx.ellipse(px,py+22*scale,20*scale,7*scale,0,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#172f43';ctx.fillRect(px-12*scale,py-28*scale,24*scale,34*scale);
+ ctx.fillStyle='#e9b48a';ctx.beginPath();ctx.arc(px,py-38*scale,11*scale,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#ffc928';ctx.fillRect(px-12*scale,py-10*scale,24*scale,5*scale);
+ if(!running){ctx.fillStyle='#fff';ctx.font='bold 16px system-ui';ctx.textAlign='center';ctx.fillText('খেলা শুরু করতে চাপ দিন',W/2,H*.32)}
+}
+function spawnObj(){let lane=Math.floor(Math.random()*3);obstacles.push({lane,z:0,type:Math.random()<.55?'coin':(Math.random()<.5?'box':'tree')})}
+function update(dt){if(!running)return;dist+=dt*0.23;spawn+=dt;if(spawn>.75){spawn=0;spawnObj()}if(jumpT>0)jumpT-=dt;
+ obstacles.forEach(o=>o.z+=dt*.42);obstacles=obstacles.filter(o=>{if(o.z>.84&&o.z<.94&&o.lane===lane){if(o.type==='coin'){coins++;$('coins').textContent=coins;if(coins>=10){mission=Math.min(3,mission+1);$('mission').textContent=mission;coins=0;$('coins').textContent=coins;world=(world+1)%3;}}else if(jumpT<=0){lives--;$('lives').textContent=lives;if(lives<=0){running=false;$('overlay').style.display='flex';$('start').textContent='আবার খেলুন';$('overlay').querySelector('p').textContent='মিশন শেষ! আবার চেষ্টা করো।';}}return false}return o.z<1.15});}
+function loop(t){let dt=Math.min((t-last)/1000||0,.04);last=t;update(dt);draw();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+function move(n){lane=Math.max(0,Math.min(2,lane+n))}
+$('left').onclick=()=>move(-1);$('rightbtn').onclick=()=>move(1);$('jump').onclick=()=>jumpT=.75;
+addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='a')move(-1);if(e.key==='ArrowRight'||e.key==='d')move(1);if(e.key==='ArrowUp'||e.key===' ')jumpT=.75});
+$('start').onclick=()=>{running=true;$('overlay').style.display='none';lives=3;coins=0;mission=1;obstacles=[];world=0;$('coins').textContent=coins;$('lives').textContent=lives;$('mission').textContent=mission};
+</script>
+</body></html>
